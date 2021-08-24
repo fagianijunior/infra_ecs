@@ -46,133 +46,112 @@ export class InfraEcsStack extends cdk.Stack {
 
     // Create polices and role
     const codeBuildManagedPolicies = new iam.ManagedPolicy(this, 'CreateCodeBuildPolicy', {
-      managedPolicyName: `CodeBuild-${project.owner}-${project.repository}`
-    });
-
-    codeBuildManagedPolicies.addStatements(
-      new iam.PolicyStatement({
-        sid: "ManageECR",
-        effect: iam.Effect.ALLOW,
-        actions: [
-          "ecr:GetDownloadUrlForLayer",
-          "ecr:BatchGetImage",
-          "ecr:CompleteLayerUpload",
-          "ecr:UploadLayerPart",
-          "ecr:InitiateLayerUpload",
-          "ecr:BatchCheckLayerAvailability",
-          "ecr:PutImage"
-        ],
-        resources: [`arn:aws:ecr:${this.region}:${this.account}:repository/*`]
-      })
-    );
-    
-    codeBuildManagedPolicies.addStatements(
-      new iam.PolicyStatement({
-        sid: "GetECRAuthorizedToken",
-        effect: iam.Effect.ALLOW,
-        actions: [
-          "ecr:GetAuthorizationToken"
-        ],
-        resources: ["*"]
-      })
-    );
-
-    codeBuildManagedPolicies.addStatements(
-      new iam.PolicyStatement({
-        sid: "ManageSecretValue",
-        effect: iam.Effect.ALLOW,
-        actions: ["secretsmanager:GetSecretValue"],
-        resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:*`]
-      })
-    );
-
-    codeBuildManagedPolicies.addStatements(
-      new iam.PolicyStatement({
-        sid: "ManageLogsOnCloudWatch",
-        effect: iam.Effect.ALLOW,
-        actions: [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ],
-        resources: [
-          codeBuildLogGroup.logGroupArn,
-          `${codeBuildLogGroup.logGroupArn}:*`
-        ]
-      })
-    );
-
-    codeBuildManagedPolicies.addStatements(
-      new iam.PolicyStatement({
-        sid: "ManageS3Bucket",
-        effect: iam.Effect.ALLOW,
-        actions: [
-          "s3:PutObject",
-          "s3:GetObject",
-          "s3:GetObjectVersion",
-          "s3:GetBucketAcl",
-          "s3:GetBucketLocation"
-        ],
-        resources: [
-          "arn:aws:s3:::codepipeline-us-east-1-*"
-        ]
-      })
-    );
-
-    codeBuildManagedPolicies.addStatements(
-      new iam.PolicyStatement({
-        sid: "ManageCodebuild",
-        effect: iam.Effect.ALLOW,
-        actions: [
-          "codebuild:CreateReportGroup",
-          "codebuild:CreateReport",
-          "codebuild:UpdateReport",
-          "codebuild:BatchPutTestCases",
-          "codebuild:BatchPutCodeCoverages"
-        ],
-        resources: [
-          `arn:aws:codebuild:${this.region}:${this.account}:report-group/${project.owner}-${project.repository}-image-build-*`
-        ]
-      })
-    );
-
-    codeBuildManagedPolicies.addStatements(
-      new iam.PolicyStatement({
-        sid: "ManageEC2VPC",
-        effect: iam.Effect.ALLOW,
-        actions: [
-          "ec2:CreateNetworkInterface",
-          "ec2:DescribeDhcpOptions",
-          "ec2:DescribeNetworkInterfaces",
-          "ec2:DeleteNetworkInterface",
-          "ec2:DescribeSubnets",
-          "ec2:DescribeSecurityGroups",
-          "ec2:DescribeVpcs"
-        ],
-        resources: [
-          "*"
-        ]
-      })
-    );
-
-    // Falta adicionar as subnets no stringEquals
-    codeBuildManagedPolicies.addStatements(
-      new iam.PolicyStatement({
-        sid: "ManageEC2NetworkInterface",
-        effect: iam.Effect.ALLOW,
-        actions: [
-          "ec2:CreateNetworkInterfacePermission"
-        ],
-        resources: [
-          `arn:aws:ec2:${this.region}:${this.account}:network-interface/*`
-        ],
-        conditions: {
-          StringEquals: {
-            "ec2:AuthorizedService": "codebuild.amazonaws.com"
+      managedPolicyName: `CodeBuild-${project.owner}-${project.repository}`,
+      statements: [
+        new iam.PolicyStatement({
+          sid: "ManageECR",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "ecr:GetDownloadUrlForLayer",
+            "ecr:BatchGetImage",
+            "ecr:CompleteLayerUpload",
+            "ecr:UploadLayerPart",
+            "ecr:InitiateLayerUpload",
+            "ecr:BatchCheckLayerAvailability",
+            "ecr:PutImage"
+          ],
+          resources: [`arn:aws:ecr:${this.region}:${this.account}:repository/*`]
+        }),
+        new iam.PolicyStatement({
+          sid: "GetECRAuthorizedToken",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "ecr:GetAuthorizationToken"
+          ],
+          resources: ["*"]
+        }),
+        new iam.PolicyStatement({
+          sid: "ManageSecretValue",
+          effect: iam.Effect.ALLOW,
+          actions: ["secretsmanager:GetSecretValue"],
+          resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:*`]
+        }),
+        new iam.PolicyStatement({
+          sid: "ManageLogsOnCloudWatch",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "logs:CreateLogGroup",
+            "logs:CreateLogStream",
+            "logs:PutLogEvents"
+          ],
+          resources: [
+            codeBuildLogGroup.logGroupArn,
+            `${codeBuildLogGroup.logGroupArn}:*`
+          ]
+        }),
+        new iam.PolicyStatement({
+          sid: "ManageS3Bucket",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "s3:PutObject",
+            "s3:GetObject",
+            "s3:GetObjectVersion",
+            "s3:GetBucketAcl",
+            "s3:GetBucketLocation"
+          ],
+          resources: [
+            "arn:aws:s3:::codepipeline-us-east-1-*"
+          ]
+        }),
+        new iam.PolicyStatement({
+          sid: "ManageCodebuild",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "codebuild:CreateReportGroup",
+            "codebuild:CreateReport",
+            "codebuild:UpdateReport",
+            "codebuild:BatchPutTestCases",
+            "codebuild:BatchPutCodeCoverages"
+          ],
+          resources: [
+            `arn:aws:codebuild:${this.region}:${this.account}:report-group/${project.owner}-${project.repository}-image-build-*`
+          ]
+        }),
+        new iam.PolicyStatement({
+          sid: "ManageEC2VPC",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "ec2:CreateNetworkInterface",
+            "ec2:DescribeDhcpOptions",
+            "ec2:DescribeNetworkInterfaces",
+            "ec2:DeleteNetworkInterface",
+            "ec2:DescribeSubnets",
+            "ec2:DescribeSecurityGroups",
+            "ec2:DescribeVpcs"
+          ],
+          resources: [
+            "*"
+          ]
+        }),
+        // Falta adicionar as subnets no stringEquals
+        new iam.PolicyStatement({
+          sid: "ManageEC2NetworkInterface",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "ec2:CreateNetworkInterfacePermission"
+          ],
+          resources: [
+            `arn:aws:ec2:${this.region}:${this.account}:network-interface/*`
+          ],
+          conditions: {
+            StringEquals: {
+              "ec2:AuthorizedService": "codebuild.amazonaws.com"
+            }
           }
-        }
-      })
-    );
+        })
+
+      ]
+    });
 
     const codeBuildProjectRole = new iam.Role (
       this,
