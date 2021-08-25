@@ -44,6 +44,20 @@ export class InfraEcsStack extends cdk.Stack {
       repo: project.repository
     });
 
+    // Use existing VPC
+    const vpc = ec2.Vpc.fromLookup(this, 'UseDefaultVPC', {
+      isDefault: true,
+    });
+    
+    let subnetsArns: any = [];
+    const vpcSubnets = vpc.selectSubnets({
+      subnetType: ec2.SubnetType.PRIVATE
+    });
+
+    for (let subnet of vpcSubnets.subnets) {
+      subnetsArns.push(`arn:aws:ec2:${this.region}:${this.account}:subnet/${subnet.subnetId}`)
+    }
+
     // Create polices and role
     const codeBuildManagedPolicies = new iam.ManagedPolicy(this, 'CreateCodeBuildPolicy', {
       managedPolicyName: `CodeBuild-${project.owner}-${project.repository}`,
@@ -133,7 +147,6 @@ export class InfraEcsStack extends cdk.Stack {
             "*"
           ]
         }),
-        // Falta adicionar as subnets no stringEquals
         new iam.PolicyStatement({
           sid: "ManageEC2NetworkInterface",
           effect: iam.Effect.ALLOW,
@@ -145,6 +158,7 @@ export class InfraEcsStack extends cdk.Stack {
           ],
           conditions: {
             StringEquals: {
+              "ec2:Subnet": subnetsArns,
               "ec2:AuthorizedService": "codebuild.amazonaws.com"
             }
           }
@@ -164,11 +178,6 @@ export class InfraEcsStack extends cdk.Stack {
         ]
       }
     );
-
-    // Use existing VPC
-    const vpc = ec2.Vpc.fromLookup(this, 'UseDefaultVPC', {
-      isDefault: true,
-    });
 
     // Crate security group
     const codeDeploySecurityGroup = new ec2.SecurityGroup(this, 'CreateCodeDeploySecurityGroup', {
