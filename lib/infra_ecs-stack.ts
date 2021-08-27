@@ -1,14 +1,14 @@
-import {project} from "./project-config";
-import * as cdk from '@aws-cdk/core';
+import * as secretsmanager from '@aws-cdk/aws-secretsmanager';
+import * as ecs_patterns from "@aws-cdk/aws-ecs-patterns";
 import * as codebuild from '@aws-cdk/aws-codebuild';
+import * as logs from '@aws-cdk/aws-logs';
+import {project} from "./project-config";
 import * as ec2 from '@aws-cdk/aws-ec2';
 import * as ecr from '@aws-cdk/aws-ecr';
 import * as ecs from '@aws-cdk/aws-ecs';
-import * as ecs_patterns from "@aws-cdk/aws-ecs-patterns";
 import * as iam from '@aws-cdk/aws-iam';
-import * as logs from '@aws-cdk/aws-logs';
 import * as s3 from '@aws-cdk/aws-s3';
-import * as secretsmanager from '@aws-cdk/aws-secretsmanager';
+import * as cdk from '@aws-cdk/core';
 
 export class InfraEcsStack extends cdk.Stack {
   constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
@@ -57,7 +57,7 @@ export class InfraEcsStack extends cdk.Stack {
     });
     
     const vpcSubnets = vpc.selectSubnets({
-      subnetType: project.vpc.subnet.private ? ec2.SubnetType.PRIVATE : ec2.SubnetType.PUBLIC
+      subnetType: ec2.SubnetType.PRIVATE
     });
 
     for (let subnet of vpcSubnets.subnets) {
@@ -185,11 +185,12 @@ export class InfraEcsStack extends cdk.Stack {
       secrets = new secretsmanager.Secret(this, `CreateSecrets-${environment}`, {
         secretName: `${environment}/${project.owner}-${project.repository}`,
         description: `Used to project ${project.repository}-${environment}`,
+        removalPolicy: project.test ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN
 
       });
       secrets.grantRead(codeBuildProjectRole);
       secrets.secretValueFromJson(
-        String(project.secrets)
+        JSON.stringify(project['secrets'][environment as 'production'|'staging'])
       );
     }
 
@@ -252,6 +253,7 @@ export class InfraEcsStack extends cdk.Stack {
         );
       }
       bucketsArns.push(assetsBucket.bucketArn);
+      bucketsArns.push(`${assetsBucket.bucketArn}/*`);
     }
 
     const iamUser = new iam.User(this, 'CreateIAMUser', {
@@ -282,10 +284,57 @@ export class InfraEcsStack extends cdk.Stack {
             resources: bucketsArns,
           }),
           new iam.PolicyStatement({
-            sid: 'SESPermissions',
+            sid: 'VisualEditor0',
             effect: iam.Effect.ALLOW,
-            actions: ['ses:*'],
-            resources: ['*']
+            actions: [
+              "iam:PassRole",
+              "ecr:GetDownloadUrlForLayer",
+              "ecr:UploadLayerPart",
+              "ecr:ListImages",
+              "ecr:PutImage",
+              "ecr:BatchGetImage",
+              "ecr:CompleteLayerUpload",
+              "ecr:DescribeRepositories",
+              "ecr:InitiateLayerUpload",
+              "ecr:BatchCheckLayerAvailability",
+              "ecr:GetRepositoryPolicy"
+            ],
+            resources: [
+              `arn:aws:iam::${this.account}:role/*`,
+              `arn:aws:ecr:${this.region}:${this.account}:repository/${project.owner}-${project.repository}-*`
+            ]
+          }),
+          new iam.PolicyStatement({
+            sid: 'VisualEditor2',
+            effect: iam.Effect.ALLOW,
+            actions: [
+              "ecs:UpdateCluster",
+              "ecs:UpdateService",
+              "ses:*",
+              "logs:*",
+              "ecs:RegisterTaskDefinition",
+              "ecr:GetAuthorizationToken",
+              "ecs:DescribeServices",
+              "codebuild:*"
+            ],
+            resources: ["*"]
+          }),
+          new iam.PolicyStatement({
+            sid: 'VisualEditor3',
+            effect: iam.Effect.ALLOW,
+            actions: [
+              "secretsmanager:GetRandomPassword",
+              "secretsmanager:ListSecrets"
+            ],
+            resources: ["*"]
+          }),
+          new iam.PolicyStatement({
+            sid: 'VisualEditor4',
+            effect: iam.Effect.ALLOW,
+            actions: ["secretsmanager:*"],
+            resources: [
+              `arn:aws:secretsmanager:${this.region}:${this.account}:secret:*`
+            ]
           })
         ]
       })
@@ -304,16 +353,99 @@ export class InfraEcsStack extends cdk.Stack {
       vpc: vpc,
     });
     
+    const taskRole = new iam.Role(this, 'CreateTaskRole', {
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      roleName: `${project.owner}-${project.repository}-service-role`
+    });
+
+    const executionRolePolicies = new iam.ManagedPolicy(this, 'CreateExecutionRolePolicy', {
+      managedPolicyName: `Execution-Policies-${project.owner}-${project.repository}`,
+      statements: [
+        new iam.PolicyStatement({
+          sid: "ManageECR",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "ecr:GetDownloadUrlForLayer",
+            "ecr:BatchGetImage",
+            "ecr:CompleteLayerUpload",
+            "ecr:UploadLayerPart",
+            "ecr:InitiateLayerUpload",
+            "ecr:BatchCheckLayerAvailability",
+            "ecr:PutImage"
+          ],
+          resources: [`arn:aws:ecr:${this.region}:${this.account}:repository/*`]
+        }),
+        new iam.PolicyStatement({
+          sid: "GetECRAuthorizedToken",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "ecr:GetAuthorizationToken",
+            "ecr:BatchCheckLayerAvailability",
+            "ecr:GetDownloadUrlForLayer",
+            "ecr:BatchGetImage",
+            "logs:CreateLogStream",
+            "logs:PutLogEvents"
+          ],
+          resources: ["*"]
+        }),
+        new iam.PolicyStatement({
+          sid: "ManageLogsOnCloudWatch",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "autoscaling:Describe*",
+            "cloudwatch:*",
+            "logs:*",
+            "sns:*",
+            "iam:GetPolicy",
+            "iam:GetPolicyVersion",
+            "iam:GetRole"
+          ],
+          resources: ['*']
+        }),
+        new iam.PolicyStatement({
+          sid: "ManageS3Bucket",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "iam:CreateServiceLinkedRole"
+          ],
+          resources: [
+            "arn:aws:iam::*:role/aws-service-role/events.amazonaws.com/AWSServiceRoleForCloudWatchEvents*"
+          ],
+          conditions: {
+              StringLike: {
+                "iam:AWSServiceName": "events.amazonaws.com"
+              }
+          }
+        }),
+        new iam.PolicyStatement({
+          sid: "ManageSecretValue",
+          effect: iam.Effect.ALLOW,
+          actions: ["secretsmanager:GetSecretValue"],
+          resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:*`]
+        })
+      ]
+    });
+
+    const executionRole = new iam.Role(this, 'CreateExecutionRole', {
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      roleName: 'ecsTaskExecutionRole',
+      managedPolicies: [
+        executionRolePolicies
+      ]
+    });
+
     for(let environment of project.environments) {
       taskDefinition = new ecs.FargateTaskDefinition(this, `CreateTaskDefinition-${environment}`, {
         family: `${project.owner}-${project.repository}-${environment}-web`,
         memoryLimitMiB: 512,
         cpu: 256,
+        taskRole: taskRole,
+        executionRole: executionRole,
       });
       
       taskDefinition.addContainer(`${project.owner}-${project.repository}-${environment}`, {
         image: ecs.ContainerImage.fromEcrRepository(ecrRepositories[environment]),
-        memoryReservationMiB: 512,
+        memoryLimitMiB: 512,
         logging: new ecs.AwsLogDriver({
           streamPrefix: "ecs",
           logGroup: ecsLogGroups[environment]
