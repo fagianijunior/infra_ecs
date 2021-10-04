@@ -145,5 +145,68 @@
         ]
       }
     ]
-  }
+  },
+  "vpc-provider:account=009973252004:filter.isDefault=false:filter.tag:Name=fagianijunior-vpc:region=us-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-0a15304a6a0b0da55",
+    "vpcCidrBlock": "10.0.0.0/16",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "Private",
+        "type": "Private",
+        "subnets": [
+          {
+            "subnetId": "subnet-0f65973d531ec7413",
+            "cidr": "10.0.1.0/24",
+            "availabilityZone": "us-east-1d",
+            "routeTableId": "rtb-00c06e9a21d521baf"
+          }
+        ]
+      },
+      {
+        "name": "Public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-0a7d2b4dd7814871b",
+            "cidr": "10.0.0.0/24",
+            "availabilityZone": "us-east-1d",
+            "routeTableId": "rtb-0f978ec39f16ff0f4"
+          }
+        ]
+      }
+    ]
+  },
+  "availability-zones:account=009973252004:region=us-east-1": [
+    "us-east-1a",
+    "us-east-1b",
+    "us-east-1c",
+    "us-east-1d",
+    "us-east-1e",
+    "us-east-1f"
+  ],
+  "availability-zones:account=860828801303:region=us-east-1": [
+    "us-east-1a",
+    "us-east-1b",
+    "us-east-1c",
+    "us-east-1d",
+    "us-east-1e",
+    "us-east-1f"
+  ],
+  "availability-zones:account=841401424365:region=us-east-1": [
+    "us-east-1a",
+    "us-east-1b",
+    "us-east-1c",
+    "us-east-1d",
+    "us-east-1e",
+    "us-east-1f"
+  ],
+  "availability-zones:account=204383486784:region=us-east-1": [
+    "us-east-1a",
+    "us-east-1b",
+    "us-east-1c",
+    "us-east-1d",
+    "us-east-1e",
+    "us-east-1f"
+  ]
 }

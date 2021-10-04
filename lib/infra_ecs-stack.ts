@@ -15,7 +15,6 @@ export class InfraEcsStack extends cdk.Stack {
     super(scope, id, props);
     
     let ecsLogGroup;
-    let ecsLogGroups:any = {};
     let subnetsArns:any = [];
     let ecrRepository;
     let assetsBucket;
@@ -25,37 +24,56 @@ export class InfraEcsStack extends cdk.Stack {
     let taskDefinition;
     let loadBalancerFargateService;
     let secrets;
+    let vpc;
 
-    
-    // Set project TAGS
     cdk.Tags.of(this).add('Project', project.repository);
-    cdk.Tags.of(this).add('Env', 'production-staging');
+    cdk.Tags.of(this).add('Env', project.environment);
     
-    // Create log goups
-    const codeBuildLogGroup = new logs.LogGroup(this, 'CreateCloudWatchcodeBuildLogGroup', {
-      logGroupName: `/aws/codebuild/${project.owner}-${project.repository}-image-build`,
+    const codeBuildLogGroup = new logs.LogGroup(this, `CreateCloudWatchcodeBuildLogGroup-${project.environment}`, {
+      logGroupName: `/aws/codebuild/${project.owner}-${project.repository}-${project.environment}-image-build`,
       removalPolicy: project.test ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN
     });
 
-    for (let environment of project.environments) {
-      ecsLogGroup = new logs.LogGroup(this, `CreateCloudWatchEcsLogGroup-${environment}`, {
-        logGroupName: `/ecs/${project.owner}-${project.repository}-${environment}-web`,
-        removalPolicy: project.test ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN,
-      });
-      ecsLogGroups[environment] = ecsLogGroup;
-    }
+    ecsLogGroup = new logs.LogGroup(this, `CreateCloudWatchEcsLogGroup-${project.environment}`, {
+      logGroupName: `/ecs/${project.owner}-${project.repository}-${project.environment}-web`,
+      removalPolicy: project.test ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN,
+    });
     
-    // Use github repository
     const gitHubSource = codebuild.Source.gitHub({
       owner: project.owner,
       repo: project.repository
     });
 
-    // Use existing VPC
-    const vpc = ec2.Vpc.fromLookup(this, 'UseDefaultVPC', {
-      isDefault: true,
-    });
-    
+    if(project.vpc.exist) {
+
+      vpc = ec2.Vpc.fromLookup(this, 'UseExistingVPC', {
+        vpcId: project.vpc.id
+      });
+    } else {
+      vpc = new ec2.Vpc(this, `${project.owner}-${project.environment}-vpc`, {
+        cidr: '10.0.0.0/16',
+        enableDnsHostnames: true,
+        enableDnsSupport: true,
+        subnetConfiguration: [
+          {
+            cidrMask: 24,
+            name: `public-${project.environment}`,
+            subnetType: ec2.SubnetType.PUBLIC,
+          },
+          {
+            cidrMask: 24,
+            name: `private-${project.environment}`,
+            subnetType: ec2.SubnetType.PRIVATE,
+          },
+          {
+            cidrMask: 28,
+            name: `isolated-${project.environment}`,
+            subnetType: ec2.SubnetType.ISOLATED,
+          }
+       ]
+      });
+    }
+
     const vpcSubnets = vpc.selectSubnets({
       subnetType: ec2.SubnetType.PRIVATE
     });
@@ -64,9 +82,8 @@ export class InfraEcsStack extends cdk.Stack {
       subnetsArns.push(`arn:aws:ec2:${this.region}:${this.account}:subnet/${subnet.subnetId}`)
     }
 
-    // Create polices and role
-    const codeBuildManagedPolicies = new iam.ManagedPolicy(this, 'CreateCodeBuildPolicy', {
-      managedPolicyName: `CodeBuild-${project.owner}-${project.repository}`,
+    const codeBuildManagedPolicies = new iam.ManagedPolicy(this, `CreateCodeBuildPolicy-${project.environment}`, {
+      managedPolicyName: `CodeBuild-${project.owner}-${project.repository}-${project.environment}`,
       statements: [
         new iam.PolicyStatement({
           sid: "ManageECR",
@@ -94,7 +111,7 @@ export class InfraEcsStack extends cdk.Stack {
           sid: "ManageSecretValue",
           effect: iam.Effect.ALLOW,
           actions: ["secretsmanager:GetSecretValue"],
-          resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:*`]
+          resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:${project.environment}/${project.owner}-${project.repository}*`]
         }),
         new iam.PolicyStatement({
           sid: "ManageLogsOnCloudWatch",
@@ -134,7 +151,7 @@ export class InfraEcsStack extends cdk.Stack {
             "codebuild:BatchPutCodeCoverages"
           ],
           resources: [
-            `arn:aws:codebuild:${this.region}:${this.account}:report-group/${project.owner}-${project.repository}-image-build-*`
+            `arn:aws:codebuild:${this.region}:${this.account}:report-group/${project.owner}-${project.repository}-${project.environment}-image-build-*`
           ]
         }),
         new iam.PolicyStatement({
@@ -172,49 +189,62 @@ export class InfraEcsStack extends cdk.Stack {
       ]
     });
 
-    const codeBuildProjectRole = new iam.Role(this, 'CreateCodeBuildProjectRole', {
+    const codeBuildProjectRole = new iam.Role(this, `CreateCodeBuildProjectRole-${project.environment}`, {
       assumedBy: new iam.ServicePrincipal('codebuild.amazonaws.com'),
-      roleName: `${project.owner}-${project.repository}-image-build-service-role`,
+      roleName: `${project.owner}-${project.repository}-${project.environment}-image-build-service-role`,
       path: '/service-role/',
       managedPolicies: [
         codeBuildManagedPolicies
       ]
     });
 
-    for (let environment of project.environments) {
-      secrets = new secretsmanager.Secret(this, `CreateSecrets-${environment}`, {
-        secretName: `${environment}/${project.owner}-${project.repository}`,
-        description: `Used to project ${project.repository}-${environment}`,
-        removalPolicy: project.test ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN
+    secrets = new secretsmanager.Secret(this, `CreateSecrets-${project.environment}`, {
+      secretName: `${project.environment}/${project.owner}-${project.repository}`,
+      description: `Used to project ${project.repository}-${project.environment}`,
+      removalPolicy: project.test ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN
+    });
+    secrets.grantRead(codeBuildProjectRole);
+    secrets.secretValueFromJson(
+      JSON.stringify(project['secrets'][project.environment as 'production'|'staging'])
+    );
 
-      });
-      secrets.grantRead(codeBuildProjectRole);
-      secrets.secretValueFromJson(
-        JSON.stringify(project['secrets'][environment as 'production'|'staging'])
-      );
-    }
-
-    // Crate security group
-    const securityGroup = new ec2.SecurityGroup(this, 'CreateCodeDeploySecurityGroup', {
-      securityGroupName: `${project.repository}-sg`,
+    const securityGroup = new ec2.SecurityGroup(this, `CreateCodeDeploySecurityGroup-${project.environment}`, {
+      securityGroupName: `${project.repository}-${this.environment}-sg`,
       allowAllOutbound: true,
       vpc: vpc,
     });
     securityGroup.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(3306));
 
-    // Create the codebuild project
-    const codeBuildProject = new codebuild.Project(this, 'CreateCodeBuildProject', {
-      projectName: `${project.owner}-${project.repository}-image-build`,
-      description: `Build to project ${project.repository}, source from github, deploy to ECS fargate.`,
+    const codeBuildProject = new codebuild.Project(this, `CreateCodeBuildProject-${project.environment}`, {
+      projectName: `${project.owner}-${project.repository}-${project.environment}-image-build`,
+      description: `Build to project ${project.repository} on ${project.environment}, source from github, deploy to ECS fargate.`,
+      badge: true,
       source: gitHubSource,
       role: codeBuildProjectRole,
       securityGroups: [securityGroup],
       environment: {
         buildImage: codebuild.LinuxBuildImage.fromDockerRegistry('public.ecr.aws/h4u2q3r3/aws-codebuild-cloud-native-buildpacks'),
         privileged: true,
+        environmentVariables: {
+          'WP_HOME': {
+            value: `${project.environment}/${project.owner}-${project.repository}:WP_HOME`,
+            type: codebuild.BuildEnvironmentVariableType.SECRETS_MANAGER
+          },
+          'WP_SITEURL': {
+            value: `${project.environment}/${project.owner}-${project.repository}:WP_SITEURL`,
+            type: codebuild.BuildEnvironmentVariableType.SECRETS_MANAGER
+          },
+          'WP_DB_URL': {
+            value: `${project.environment}/${project.owner}-${project.repository}:WP_DB_URL`,
+            type: codebuild.BuildEnvironmentVariableType.SECRETS_MANAGER
+          },
+          'REDIS_URL': {
+            value: `${project.environment}/${project.owner}-${project.repository}:REDIS_URL`,
+            type: codebuild.BuildEnvironmentVariableType.SECRETS_MANAGER
+          }
+        }
       },
       vpc: vpc,
-      buildSpec: codebuild.BuildSpec.fromSourceFilename('.aws/codebuild/buildspec.yml'),
       cache: codebuild.Cache.local(codebuild.LocalCacheMode.DOCKER_LAYER, codebuild.LocalCacheMode.SOURCE),
       logging: {
         cloudWatch: {
@@ -224,45 +254,43 @@ export class InfraEcsStack extends cdk.Stack {
       }
     });
 
-    for(let environment of project.environments) {
-      bucketName = s3BucketName(environment);
-      
-      if(project.s3.exist) {
-        assetsBucket = s3.Bucket.fromBucketAttributes(this, `UseAlreadyCreatedBucket-${environment}`, {
-          bucketArn: `arn:aws:s3:::${bucketName}`
-        });
-      } else {
-        assetsBucket = new s3.Bucket(this, `CreateMediaBucket-${environment}`, {
-          bucketName: bucketName,
-          blockPublicAccess: new s3.BlockPublicAccess({
-            blockPublicAcls: false,
-            blockPublicPolicy: false,
-            ignorePublicAcls: false,
-          }),
-          removalPolicy: project.test ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN
-        });
-   
-        assetsBucket.addToResourcePolicy(
-          new iam.PolicyStatement({
-            sid: "PublicReadForGetBucketObjects",
-            actions: ["s3:GetObject"],
-            resources: [assetsBucket.arnForObjects('*')],
-            principals: [new iam.AnyPrincipal()],
-            effect: iam.Effect.ALLOW,
-          })
-        );
-      }
-      bucketsArns.push(assetsBucket.bucketArn);
-      bucketsArns.push(`${assetsBucket.bucketArn}/*`);
+    bucketName = s3BucketName(project.environment);
+    
+    if(project.s3.exist) {
+      assetsBucket = s3.Bucket.fromBucketAttributes(this, `UseAlreadyCreatedBucket-${project.environment}`, {
+        bucketArn: `arn:aws:s3:::${bucketName}`
+      });
+    } else {
+      assetsBucket = new s3.Bucket(this, `CreateMediaBucket-${project.environment}`, {
+        bucketName: bucketName,
+        blockPublicAccess: new s3.BlockPublicAccess({
+          blockPublicAcls: false,
+          blockPublicPolicy: false,
+          ignorePublicAcls: false,
+        }),
+        removalPolicy: project.test ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN
+      });
+  
+      assetsBucket.addToResourcePolicy(
+        new iam.PolicyStatement({
+          sid: "PublicReadForGetBucketObjects",
+          actions: ["s3:GetObject"],
+          resources: [assetsBucket.arnForObjects('*')],
+          principals: [new iam.AnyPrincipal()],
+          effect: iam.Effect.ALLOW,
+        })
+      );
     }
+    bucketsArns.push(assetsBucket.bucketArn);
+    bucketsArns.push(`${assetsBucket.bucketArn}/*`);
 
-    const iamUser = new iam.User(this, 'CreateIAMUser', {
-      userName: `apps-${project.repository}`,
+    const iamUser = new iam.User(this, `CreateIAMUser-${project.environment}`, {
+      userName: `${project.repository}-${project.environment}`,
     });
 
     iamUser.attachInlinePolicy(
-      new iam.Policy(this, 'CreatePolicytoS3Bucket', {
-        policyName: 'resources-to-application',
+      new iam.Policy(this, `CreatePolicytoS3Bucket-${project.environment}`, {
+        policyName: `resources-to-application-${project.environment}`,
         statements: [ 
           new iam.PolicyStatement({
             sid: "S3BucketPermissions",
@@ -340,26 +368,23 @@ export class InfraEcsStack extends cdk.Stack {
       })
     );
 
-    for(let environment of project.environments) {
-      ecrRepository = new ecr.Repository(this, `CreateNewECRRepository-${environment}`, {
-        repositoryName: `${project.owner}-${project.repository}-${environment}`,
-        removalPolicy: project.test ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN
-      });
-      ecrRepositories[environment] = ecrRepository;
-    }
+    ecrRepository = new ecr.Repository(this, `CreateNewECRRepository-${project.environment}`, {
+      repositoryName: `${project.owner}-${project.repository}-${project.environment}`,
+      removalPolicy: project.test ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN
+    });
 
-    const cluster = new ecs.Cluster(this, 'CreateCluster', {
-      clusterName: project.repository,
+    const cluster = new ecs.Cluster(this, `CreateCluster-${project.environment}`, {
+      clusterName: `${project.repository}-${project.environment}`,
       vpc: vpc,
     });
     
-    const taskRole = new iam.Role(this, 'CreateTaskRole', {
+    const taskRole = new iam.Role(this, `CreateTaskRole-${project.environment}`, {
       assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
-      roleName: `${project.owner}-${project.repository}-service-role`
+      roleName: `${project.owner}-${project.repository}-${project.environment}-service-role`
     });
 
-    const executionRolePolicies = new iam.ManagedPolicy(this, 'CreateExecutionRolePolicy', {
-      managedPolicyName: `Execution-Policies-${project.owner}-${project.repository}`,
+    const executionRolePolicies = new iam.ManagedPolicy(this, `CreateExecutionRolePolicy-${project.environment}`, {
+      managedPolicyName: `Execution-Policies-${project.owner}-${project.repository}-${project.environment}`,
       statements: [
         new iam.PolicyStatement({
           sid: "ManageECR",
@@ -426,61 +451,66 @@ export class InfraEcsStack extends cdk.Stack {
       ]
     });
 
-    const executionRole = new iam.Role(this, 'CreateExecutionRole', {
+    const executionRole = new iam.Role(this, `CreateExecutionRole-${project.environment}`, {
       assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
-      roleName: 'ecsTaskExecutionRole',
+      roleName: `ecsTaskExecutionRole-${project.environment}`,
       managedPolicies: [
         executionRolePolicies
       ]
     });
 
-    for(let environment of project.environments) {
-      taskDefinition = new ecs.FargateTaskDefinition(this, `CreateTaskDefinition-${environment}`, {
-        family: `${project.owner}-${project.repository}-${environment}-web`,
-        memoryLimitMiB: 512,
-        cpu: 256,
-        taskRole: taskRole,
-        executionRole: executionRole,
-      });
-      
-      taskDefinition.addContainer(`${project.owner}-${project.repository}-${environment}`, {
-        image: ecs.ContainerImage.fromEcrRepository(ecrRepositories[environment]),
-        memoryLimitMiB: 512,
-        logging: new ecs.AwsLogDriver({
-          streamPrefix: "ecs",
-          logGroup: ecsLogGroups[environment]
-        }),
-        environment: {environment: environment},
-        portMappings: [{
-          hostPort: 3000,
-          protocol: ecs.Protocol.TCP,
-          containerPort: 3000,
-        }]
-      });
+    taskDefinition = new ecs.FargateTaskDefinition(this, `CreateTaskDefinition-${project.environment}`, {
+      family: `${project.owner}-${project.repository}-${project.environment}-web`,
+      memoryLimitMiB: 512,
+      cpu: 256,
+      taskRole: taskRole,
+      executionRole: executionRole,
+    });
+    
+    taskDefinition.addContainer(`${project.owner}-${project.repository}-${project.environment}`, {
+      image: ecs.ContainerImage.fromEcrRepository(ecrRepository),
+      memoryLimitMiB: 512,
+      logging: new ecs.AwsLogDriver({
+        streamPrefix: "ecs",
+        logGroup: ecsLogGroup
+      }),
+      environment: {environment: project.environment},
+      portMappings: [{
+        hostPort: 3000,
+        protocol: ecs.Protocol.TCP,
+        containerPort: 3000,
+      }]
+    });
 
-      loadBalancerFargateService = new ecs_patterns.ApplicationLoadBalancedFargateService(this, `CreatLoadBalancer-${environment}`, {
-        cluster: cluster,
-        serviceName: `${project.repository}-${environment}-web`,
-        desiredCount: 1,
-        publicLoadBalancer: true,
-        taskDefinition: taskDefinition,
-        assignPublicIp: true,
-        loadBalancerName: `${project.repository}-${environment}-lb`,
-        securityGroups: [securityGroup]
-      });
-  
-      loadBalancerFargateService.targetGroup.configureHealthCheck({
-        path: "/health_check",
-      });
-    };
+    loadBalancerFargateService = new ecs_patterns.ApplicationLoadBalancedFargateService(this, `CreatLoadBalancer-${project.environment}`, {
+      cluster: cluster,
+      serviceName: `${project.repository}-${project.environment}-web`,
+      desiredCount: 1,
+      publicLoadBalancer: true,
+      taskDefinition: taskDefinition,
+      assignPublicIp: true,
+      loadBalancerName: `${project.repository.replace('_','-')}-${project.environment}-lb`,
+      securityGroups: [securityGroup]
+    });
 
-    // Functions
+    loadBalancerFargateService.targetGroup.configureHealthCheck({
+      path: "/health_check",
+    });
+
     function s3BucketName(environment:string) {
       if (environment == 'production') {
-        return `media.${project.dns.domain}`;
+        return `media-${project.dns.domain}`;
       }
 
-      return `media-${environment}.${project.dns.domain}`;
+      return `media-${environment}-${project.dns.domain}`;
     }
   }
 }
+// Set project TAGS
+// Create log goups
+// Use github repository
+// Use existing VPC
+// Create polices and role
+// Crate security group
+// Create the codebuild project
+// Functions

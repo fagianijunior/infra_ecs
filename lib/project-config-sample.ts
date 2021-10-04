@@ -3,12 +3,19 @@
 // aws codebuild import-source-credentials --server-type GITHUB --auth-type PERSONAL_ACCESS_TOKEN --token <token_value>
 
 export const project = {
-    test: true,
-    owner: 'OWNER_NAME',    // Same as Github owner
-    repository: 'PROJECT_NAME',    // Same as Github repository name
+    test: false,
     environments: ['staging', 'production'],
+    secrets: {
+        production: {
+            PORT: 3000
+        },
+        staging: {
+            PORT: 3000
+        }
+    },
+    owner: 'fagianijunior',    // Same as Github owner
+    repository: 'wordpress',    // Same as Github repository name
     dns: {
-        domain: 'EXAMPLE.COM.BR'
-    }
-    
+        domain: 'fagianijunior.com.br'
+    }   
 }
