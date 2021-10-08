@@ -6,12 +6,8 @@ export const project = {
     test: false,
     environments: ['staging', 'production'],
     secrets: {
-        production: {
-            PORT: 3000
-        },
-        staging: {
-            PORT: 3000
-        }
+        production: '{"PORT":"3000"}',
+        staging: '{"PORT":"3000"}'
     },
     owner: 'fagianijunior',    // Same as Github owner
     repository: 'wordpress',    // Same as Github repository name

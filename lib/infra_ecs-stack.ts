@@ -111,7 +111,9 @@ export class InfraEcsStack extends cdk.Stack {
           sid: "ManageSecretValue",
           effect: iam.Effect.ALLOW,
           actions: ["secretsmanager:GetSecretValue"],
-          resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:${project.environment}/${project.owner}-${project.repository}*`]
+          resources: [
+            `arn:aws:secretsmanager:${this.region}:${this.account}:secret:${project.environment}/${project.owner}-${project.repository}*`
+          ]
         }),
         new iam.PolicyStatement({
           sid: "ManageLogsOnCloudWatch",
@@ -134,10 +136,12 @@ export class InfraEcsStack extends cdk.Stack {
             "s3:GetObject",
             "s3:GetObjectVersion",
             "s3:GetBucketAcl",
-            "s3:GetBucketLocation"
+            "s3:GetBucketLocation",
+            "s3:PutObject"
           ],
           resources: [
-            "arn:aws:s3:::codepipeline-us-east-1-*"
+            "arn:aws:s3:::*",
+            "arn:aws:s3:::*/*"
           ]
         }),
         new iam.PolicyStatement({
@@ -204,9 +208,6 @@ export class InfraEcsStack extends cdk.Stack {
       removalPolicy: project.test ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN
     });
     secrets.grantRead(codeBuildProjectRole);
-    secrets.secretValueFromJson(
-      JSON.stringify(project['secrets'][project.environment as 'production'|'staging'])
-    );
 
     const securityGroup = new ec2.SecurityGroup(this, `CreateCodeDeploySecurityGroup-${project.environment}`, {
       securityGroupName: `${project.repository}-${this.environment}-sg`,
@@ -220,29 +221,12 @@ export class InfraEcsStack extends cdk.Stack {
       description: `Build to project ${project.repository} on ${project.environment}, source from github, deploy to ECS fargate.`,
       badge: true,
       source: gitHubSource,
+      buildSpec: codebuild.BuildSpec.fromSourceFilename('.aws/codebuild/buildspec.yml'),
       role: codeBuildProjectRole,
       securityGroups: [securityGroup],
       environment: {
         buildImage: codebuild.LinuxBuildImage.fromDockerRegistry('public.ecr.aws/h4u2q3r3/aws-codebuild-cloud-native-buildpacks'),
-        privileged: true,
-        environmentVariables: {
-          'WP_HOME': {
-            value: `${project.environment}/${project.owner}-${project.repository}:WP_HOME`,
-            type: codebuild.BuildEnvironmentVariableType.SECRETS_MANAGER
-          },
-          'WP_SITEURL': {
-            value: `${project.environment}/${project.owner}-${project.repository}:WP_SITEURL`,
-            type: codebuild.BuildEnvironmentVariableType.SECRETS_MANAGER
-          },
-          'WP_DB_URL': {
-            value: `${project.environment}/${project.owner}-${project.repository}:WP_DB_URL`,
-            type: codebuild.BuildEnvironmentVariableType.SECRETS_MANAGER
-          },
-          'REDIS_URL': {
-            value: `${project.environment}/${project.owner}-${project.repository}:REDIS_URL`,
-            type: codebuild.BuildEnvironmentVariableType.SECRETS_MANAGER
-          }
-        }
+        privileged: true
       },
       vpc: vpc,
       cache: codebuild.Cache.local(codebuild.LocalCacheMode.DOCKER_LAYER, codebuild.LocalCacheMode.SOURCE),
@@ -289,51 +273,83 @@ export class InfraEcsStack extends cdk.Stack {
     });
 
     iamUser.attachInlinePolicy(
-      new iam.Policy(this, `CreatePolicytoS3Bucket-${project.environment}`, {
-        policyName: `resources-to-application-${project.environment}`,
+      new iam.Policy(this, `accessToS3BucketFrontend-${project.environment}`, {
+        policyName: `access-to-s3-bucket-fronend-${project.environment}`,
         statements: [ 
           new iam.PolicyStatement({
-            sid: "S3BucketPermissions",
             effect: iam.Effect.ALLOW,
             actions: [
               "s3:PutObject",
-              "s3:GetObjectAcl",
-              "s3:GetObject",
-              "s3:ListBucketMultipartUploads",
-              "s3:AbortMultipartUpload",
               "s3:ListBucket",
               "s3:DeleteObject",
-              "s3:GetBucketAcl",
-              "s3:GetBucketLocation",
-              "s3:GetBucketPolicy",
-              "s3:PutObjectAcl",
-              "s3:ListMultipartUploadParts"
+              "s3:PutObjectAcl"
+            ],
+            resources: bucketsArns,
+          }),
+        ]
+      })
+    );
+
+    iamUser.attachInlinePolicy(
+      new iam.Policy(this, `appsManageS3MediaApi-${project.environment}`, {
+        policyName: `apps-manage-s3-media-api--${project.environment}`,
+        statements: [
+          new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            actions: [
+              "s3:ListBucket"
             ],
             resources: bucketsArns,
           }),
           new iam.PolicyStatement({
-            sid: 'VisualEditor0',
             effect: iam.Effect.ALLOW,
             actions: [
-              "iam:PassRole",
+              "s3:ListBucket"
+            ],
+            resources: bucketsArns,
+            conditions: {
+              "StringLike": {
+                "s3:prefix": "*"
+              }
+            }
+          }),
+          new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            actions: [
+              "s3:ListBucketMultipartUploads",
               "ecr:GetDownloadUrlForLayer",
+              "s3:ListBucket",
               "ecr:UploadLayerPart",
+              "s3:GetBucketAcl",
               "ecr:ListImages",
+              "s3:GetBucketPolicy",
+              "s3:ListMultipartUploadParts",
               "ecr:PutImage",
+              "s3:PutObject",
+              "s3:GetObjectAcl",
+              "s3:GetObject",
+              "iam:PassRole",
+              "secretsmanager:GetSecretValue",
+              "s3:AbortMultipartUpload",
               "ecr:BatchGetImage",
               "ecr:CompleteLayerUpload",
               "ecr:DescribeRepositories",
+              "s3:DeleteObject",
+              "s3:GetBucketLocation",
               "ecr:InitiateLayerUpload",
+              "s3:PutObjectAcl",
               "ecr:BatchCheckLayerAvailability",
               "ecr:GetRepositoryPolicy"
             ],
             resources: [
+              bucketsArns[0],
+              bucketsArns[1],
+              `arn:aws:secretsmanager:${this.region}:${this.account}:secret:*`,
               `arn:aws:iam::${this.account}:role/*`,
-              `arn:aws:ecr:${this.region}:${this.account}:repository/${project.owner}-${project.repository}-*`
+              `arn:aws:ecr:${this.region}:${this.account}:repository/money-times-api_moneytimes-*`
             ]
           }),
           new iam.PolicyStatement({
-            sid: 'VisualEditor2',
             effect: iam.Effect.ALLOW,
             actions: [
               "ecs:UpdateCluster",
@@ -345,25 +361,37 @@ export class InfraEcsStack extends cdk.Stack {
               "ecs:DescribeServices",
               "codebuild:*"
             ],
-            resources: ["*"]
-          }),
+            resources: [
+              "*"
+            ]
+          })
+        ]
+      })
+    )
+
+    iamUser.attachInlinePolicy(
+      new iam.Policy(this, `MoneyTimesApiMoneytimesSecretmanager-${project.environment}`, {
+        policyName: `Money-Times-api_moneytimes-secretmanager-${project.environment}`,
+        statements: [
           new iam.PolicyStatement({
-            sid: 'VisualEditor3',
             effect: iam.Effect.ALLOW,
             actions: [
               "secretsmanager:GetRandomPassword",
               "secretsmanager:ListSecrets"
             ],
-            resources: ["*"]
+            resources: [
+              "*"
+            ]
           }),
           new iam.PolicyStatement({
-            sid: 'VisualEditor4',
             effect: iam.Effect.ALLOW,
-            actions: ["secretsmanager:*"],
+            actions: [
+              "secretsmanager:*"
+            ],
             resources: [
               `arn:aws:secretsmanager:${this.region}:${this.account}:secret:*`
             ]
-          })
+          }),
         ]
       })
     );
@@ -446,7 +474,9 @@ export class InfraEcsStack extends cdk.Stack {
           sid: "ManageSecretValue",
           effect: iam.Effect.ALLOW,
           actions: ["secretsmanager:GetSecretValue"],
-          resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:*`]
+          resources: [
+            `arn:aws:secretsmanager:${this.region}:${this.account}:secret:*`
+          ]
         })
       ]
     });
