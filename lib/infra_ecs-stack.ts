@@ -225,7 +225,7 @@ export class InfraEcsStack extends cdk.Stack {
       role: codeBuildProjectRole,
       securityGroups: [securityGroup],
       environment: {
-        buildImage: codebuild.LinuxBuildImage.fromDockerRegistry('public.ecr.aws/h4u2q3r3/aws-codebuild-cloud-native-buildpacks'),
+        buildImage: codebuild.LinuxBuildImage.fromDockerRegistry('public.ecr.aws/h4u2q3r3/aws-codebuild-cloud-native-buildpacks:l2'),
         privileged: true
       },
       vpc: vpc,
@@ -499,6 +499,9 @@ export class InfraEcsStack extends cdk.Stack {
     
     taskDefinition.addContainer(`${project.owner}-${project.repository}-${project.environment}`, {
       image: ecs.ContainerImage.fromEcrRepository(ecrRepository),
+
+      containerName: `${project.owner}-${project.repository}`,
+      
       memoryLimitMiB: 512,
       logging: new ecs.AwsLogDriver({
         streamPrefix: "ecs",
@@ -522,6 +525,9 @@ export class InfraEcsStack extends cdk.Stack {
       loadBalancerName: `${project.repository.replace('_','-')}-${project.environment}-lb`,
       securityGroups: [securityGroup]
     });
+
+
+
 
     loadBalancerFargateService.targetGroup.configureHealthCheck({
       path: "/health_check",

@@ -4,7 +4,7 @@
 
 export const project = {
     test: false,
-    environments: ['staging', 'production'],
+    environment: 'production',
     secrets: {
         production: '{"PORT":"3000"}',
         staging: '{"PORT":"3000"}'
