@@ -550,7 +550,7 @@ export class InfraEcsStack extends cdk.Stack {
       desiredCount: 1,
       publicLoadBalancer: true,
       taskDefinition: taskDefinition,
-      assignPublicIp: true,
+      assignPublicIp: false,
       loadBalancerName: `${props.repository.replace('_','-')}-${props.environment}-lb`,
       securityGroups: [securityGroup]
     });
